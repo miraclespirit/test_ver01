@@ -80,6 +80,19 @@
         }
         #status-msg .icon { font-size: 56px; display: block; margin-bottom: 15px; }
         #status-msg .sub { font-size: 14px; color: #333; }
+        #status-msg .room-id {
+            font-size: 13px;
+            color: #4CAF50;
+            margin-top: 10px;
+            font-family: monospace;
+            display: block;
+        }
+        #status-msg .status {
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+            display: block;
+        }
 
         #viewer-info {
             position: absolute;
@@ -163,6 +176,74 @@
             color: #fff;
         }
 
+        .room-control {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .room-control label {
+            color: #888;
+            font-size: 13px;
+        }
+        .room-control input {
+            flex: 1;
+            min-width: 120px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            color: #4CAF50;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .room-control input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .room-control .btn-apply {
+            background: #2a2a2a;
+            border: 1px solid #333;
+            color: #888;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        .room-control .btn-apply:hover {
+            background: #333;
+            color: #fff;
+        }
+        .room-control .status-badge {
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        .room-control .status-badge.online {
+            background: #1a3a1a;
+            color: #4CAF50;
+        }
+        .room-control .status-badge.offline {
+            background: #3a1a1a;
+            color: #f44336;
+        }
+        .room-control .status-badge.saving {
+            background: #1a2a3a;
+            color: #4CAF50;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
         .qr-section {
             background: #1a1a1a;
             border-radius: 16px;
@@ -238,6 +319,7 @@
             min-height: 200px;
             max-height: 400px;
             overflow: hidden;
+            position: relative;
         }
         .admin-preview canvas {
             max-width: 100%;
@@ -248,6 +330,16 @@
             color: #333;
             font-size: 14px;
             text-align: center;
+        }
+        .admin-preview .restore-badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #1a3a1a;
+            color: #4CAF50;
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 10px;
         }
 
         .controls {
@@ -382,7 +474,6 @@
             margin-top: 8px;
         }
 
-        /* Индикатор сохранения */
         .save-indicator {
             display: none;
             color: #4CAF50;
@@ -427,6 +518,13 @@
             .admin-preview canvas {
                 max-height: 200px;
             }
+            .room-control {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .room-control input {
+                min-width: auto;
+            }
         }
 
         ::-webkit-scrollbar { width: 5px; }
@@ -445,6 +543,8 @@
                 <div class="icon">●</div>
                 Ожидание презентации<br>
                 <span class="sub">Преподаватель скоро начнёт</span>
+                <span class="room-id" id="display-room-id">Комната: ...</span>
+                <span class="status" id="connection-status">Статус: подключение...</span>
             </div>
             <canvas id="pdf-canvas" style="display:none;"></canvas>
             <div id="watermark" style="display:none;">●</div>
@@ -467,6 +567,16 @@
             </div>
         </div>
 
+        <!-- Управление комнатой -->
+        <div class="room-control">
+            <label>Ключ комнаты:</label>
+            <input type="text" id="room-input" readonly>
+            <button class="btn-apply" onclick="copyRoomKey()">Копировать</button>
+            <button class="btn-apply" onclick="regenerateRoom()">Новая</button>
+            <span class="status-badge offline" id="mqtt-status">● off</span>
+            <span class="status-badge" id="save-status" style="display:none;">● сохранено</span>
+        </div>
+
         <div class="qr-section">
             <div class="info">
                 <div class="title">Пригласите зрителей</div>
@@ -484,6 +594,7 @@
                 Загрузите PDF для предпросмотра
             </div>
             <canvas id="admin-canvas" style="display:none;"></canvas>
+            <div class="restore-badge" id="restore-badge" style="display:none;">восстановлено</div>
         </div>
 
         <div class="controls">
@@ -527,7 +638,7 @@
 
     <script>
         // ================================================================
-        // 1. УНИКАЛЬНАЯ КОМНАТА
+        // 1. УПРАВЛЕНИЕ КОМНАТОЙ
         // ================================================================
         
         function getRoomFromURL() {
@@ -535,114 +646,43 @@
             return params.get('room');
         }
         
+        function setRoomInURL(roomId) {
+            const url = new URL(window.location);
+            url.searchParams.set('room', roomId);
+            window.history.replaceState({}, '', url);
+        }
+        
         let ROOM_ID = getRoomFromURL();
         
         if (!ROOM_ID) {
             ROOM_ID = 'r' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
-            const url = new URL(window.location);
-            url.searchParams.set('room', ROOM_ID);
-            window.history.replaceState({}, '', url);
+            setRoomInURL(ROOM_ID);
         }
         
-        console.log('Комната:', ROOM_ID);
+        document.getElementById('room-input').value = ROOM_ID;
+        document.getElementById('display-room-id').textContent = 'Комната: ' + ROOM_ID;
         
-        // ================================================================
-        // 2. РАБОТА С LOCALSTORAGE (СОХРАНЕНИЕ)
-        // ================================================================
-        
-        const STORAGE_KEY = 'presentation_data_' + ROOM_ID;
-        
-        function saveToStorage() {
-            try {
-                const data = {
-                    files: files.map(f => ({
-                        name: f.name,
-                        data: arrayBufferToBase64(f.data),
-                        pages: f.pages
-                    })),
-                    currentFile: currentFile ? currentFile.name : null,
-                    currentPage: currentPage,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-                
-                // Показываем индикатор сохранения
-                const indicator = document.getElementById('save-indicator');
-                indicator.classList.add('show');
-                setTimeout(() => {
-                    indicator.classList.remove('show');
-                }, 2000);
-                
-                console.log('Данные сохранены в localStorage');
-            } catch(e) {
-                console.log('Ошибка сохранения:', e);
-            }
+        function copyRoomKey() {
+            navigator.clipboard.writeText(ROOM_ID).then(() => {
+                alert('Ключ комнаты скопирован: ' + ROOM_ID);
+            }).catch(() => {
+                prompt('Скопируйте ключ:', ROOM_ID);
+            });
         }
         
-        function loadFromStorage() {
-            try {
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (!stored) return false;
-                
-                const data = JSON.parse(stored);
-                if (!data.files || data.files.length === 0) return false;
-                
-                console.log('Загружаем сохраненные данные:', data.files.length + ' файлов');
-                
-                // Восстанавливаем файлы
-                files = data.files.map(f => ({
-                    name: f.name,
-                    data: base64ToArrayBuffer(f.data),
-                    pages: f.pages || 0
-                }));
-                
-                // Находим активный файл
-                if (data.currentFile) {
-                    const found = files.find(f => f.name === data.currentFile);
-                    if (found) {
-                        currentFile = found;
-                        currentPage = data.currentPage || 1;
-                    } else {
-                        currentFile = files[0];
-                        currentPage = 1;
-                    }
-                } else {
-                    currentFile = files[0];
-                    currentPage = 1;
-                }
-                
-                renderFileList();
-                updateFileInfo(currentFile.name, currentFile.pages + ' стр.');
-                
-                // Загружаем PDF
-                loadPDFFromData(currentFile.data, currentFile.name).then(() => {
-                    renderPage(currentPage);
-                    renderAdminPreview(currentPage);
-                    sendPageImage(currentPage);
-                });
-                
-                return true;
-            } catch(e) {
-                console.log('Ошибка загрузки из localStorage:', e);
-                return false;
-            }
-        }
-        
-        function clearSavedData() {
-            if (confirm('Очистить все сохраненные данные?')) {
-                localStorage.removeItem(STORAGE_KEY);
-                files = [];
-                currentFile = null;
-                pdfDoc = null;
-                totalPages = 0;
-                pageCache.clear();
+        function regenerateRoom() {
+            if (confirm('Создать новую комнату? Зрители потеряют соединение.')) {
+                const newRoom = 'r' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
+                setRoomInURL(newRoom);
                 location.reload();
             }
         }
         
         // ================================================================
-        // 3. КОНВЕРТАЦИЯ ДЛЯ ХРАНЕНИЯ
+        // 2. ХРАНЕНИЕ В LOCALSTORAGE (ПОЛНОЕ СОХРАНЕНИЕ)
         // ================================================================
+        
+        const STORAGE_KEY = 'presentation_full_' + ROOM_ID;
         
         function arrayBufferToBase64(buffer) {
             let binary = '';
@@ -662,8 +702,153 @@
             return bytes.buffer;
         }
         
+        function saveFullState() {
+            try {
+                // Сохраняем ВСЁ состояние
+                const data = {
+                    files: files.map(f => ({
+                        name: f.name,
+                        data: arrayBufferToBase64(f.data),
+                        pages: f.pages || 0
+                    })),
+                    currentFile: currentFile ? currentFile.name : null,
+                    currentPage: currentPage,
+                    totalPages: totalPages,
+                    timestamp: Date.now(),
+                    roomId: ROOM_ID
+                };
+                
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                
+                // Показываем индикатор сохранения
+                const indicator = document.getElementById('save-indicator');
+                indicator.classList.add('show');
+                setTimeout(() => {
+                    indicator.classList.remove('show');
+                }, 2000);
+                
+                // Показываем статус сохранения
+                const saveStatus = document.getElementById('save-status');
+                saveStatus.style.display = 'inline';
+                saveStatus.textContent = '● сохранено ' + new Date().toLocaleTimeString();
+                setTimeout(() => {
+                    saveStatus.style.display = 'none';
+                }, 3000);
+                
+                console.log('✅ Полное состояние сохранено');
+                return true;
+            } catch(e) {
+                console.log('❌ Ошибка сохранения:', e);
+                // Если ошибка - возможно файл слишком большой
+                if (e.name === 'QuotaExceededError') {
+                    alert('⚠️ Файл слишком большой для сохранения. Используйте менее 5-10 МБ.');
+                }
+                return false;
+            }
+        }
+        
+        function loadFullState() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) {
+                    console.log('Нет сохраненных данных');
+                    return false;
+                }
+                
+                const data = JSON.parse(stored);
+                
+                // Проверяем, что данные валидны
+                if (!data.files || data.files.length === 0) {
+                    console.log('Нет файлов в сохранении');
+                    return false;
+                }
+                
+                // Проверяем, что комната совпадает
+                if (data.roomId && data.roomId !== ROOM_ID) {
+                    console.log('Комната не совпадает, данные не загружены');
+                    return false;
+                }
+                
+                console.log('📂 Загружаем сохраненные данные:', data.files.length + ' файлов');
+                console.log('📄 Текущий файл:', data.currentFile);
+                console.log('📄 Страница:', data.currentPage);
+                
+                // Восстанавливаем файлы
+                files = data.files.map(f => ({
+                    name: f.name,
+                    data: base64ToArrayBuffer(f.data),
+                    pages: f.pages || 0
+                }));
+                
+                // Находим активный файл
+                if (data.currentFile) {
+                    const found = files.find(f => f.name === data.currentFile);
+                    if (found) {
+                        currentFile = found;
+                        currentPage = data.currentPage || 1;
+                        totalPages = data.totalPages || found.pages || 0;
+                    } else {
+                        currentFile = files[0];
+                        currentPage = 1;
+                    }
+                } else {
+                    currentFile = files[0];
+                    currentPage = 1;
+                }
+                
+                // Обновляем интерфейс
+                renderFileList();
+                updateFileInfo(currentFile.name, (currentFile.pages || '...') + ' стр.');
+                
+                // Показываем бейдж восстановления
+                document.getElementById('restore-badge').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('restore-badge').style.display = 'none';
+                }, 3000);
+                
+                // Загружаем PDF
+                loadPDFFromData(currentFile.data, currentFile.name).then(() => {
+                    renderPage(currentPage);
+                    renderAdminPreview(currentPage);
+                    // Отправляем зрителям после восстановления
+                    setTimeout(() => {
+                        sendPageImage(currentPage);
+                    }, 1000);
+                });
+                
+                return true;
+            } catch(e) {
+                console.log('❌ Ошибка загрузки из localStorage:', e);
+                return false;
+            }
+        }
+        
+        function clearSavedData() {
+            if (confirm('Очистить все сохраненные данные?')) {
+                localStorage.removeItem(STORAGE_KEY);
+                files = [];
+                currentFile = null;
+                pdfDoc = null;
+                totalPages = 0;
+                pageCache.clear();
+                location.reload();
+            }
+        }
+        
+        // Автосохранение каждые 10 секунд
+        let autoSaveInterval = null;
+        
+        function startAutoSave() {
+            if (autoSaveInterval) clearInterval(autoSaveInterval);
+            autoSaveInterval = setInterval(() => {
+                if (files.length > 0 && isTeacher) {
+                    saveFullState();
+                }
+            }, 10000); // Каждые 10 секунд
+        }
+        
         // ================================================================
-        // 4. НАСТРОЙКИ
+        // 3. НАСТРОЙКИ
         // ================================================================
         
         const QUALITY = 0.7;
@@ -672,7 +857,7 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         
         // ================================================================
-        // 5. ПЕРЕМЕННЫЕ
+        // 4. ПЕРЕМЕННЫЕ
         // ================================================================
         
         let pdfDoc = null;
@@ -685,7 +870,7 @@
         let isConnected = false;
         let pageCache = new Map();
         let qrCodeInstance = null;
-        let isDataLoaded = false;
+        let isRestored = false;
         
         const canvas = document.getElementById('pdf-canvas');
         const ctx = canvas.getContext('2d');
@@ -705,9 +890,11 @@
         const filePages = document.getElementById('file-pages');
         const shareUrl = document.getElementById('share-url');
         const previewPlaceholder = document.getElementById('preview-placeholder');
+        const connectionStatus = document.getElementById('connection-status');
+        const mqttStatus = document.getElementById('mqtt-status');
         
         // ================================================================
-        // 6. QR-КОД И ССЫЛКА
+        // 5. QR-КОД И ССЫЛКА
         // ================================================================
         
         function getFullUrl() {
@@ -743,17 +930,45 @@
         }
         
         // ================================================================
-        // 7. MQTT
+        // 6. MQTT
         // ================================================================
+        
+        function updateMQTTStatus(connected) {
+            isConnected = connected;
+            if (connected) {
+                mqttStatus.textContent = '● on';
+                mqttStatus.className = 'status-badge online';
+                connectionStatus.textContent = 'Статус: онлайн';
+                connectionStatus.style.color = '#4CAF50';
+            } else {
+                mqttStatus.textContent = '● off';
+                mqttStatus.className = 'status-badge offline';
+                connectionStatus.textContent = 'Статус: офлайн';
+                connectionStatus.style.color = '#f44336';
+            }
+        }
         
         function connectMQTT() {
             try {
                 mqttClient = mqtt.connect('wss://test.mosquitto.org:8081');
                 
                 mqttClient.on('connect', () => {
-                    console.log('MQTT подключен');
-                    isConnected = true;
-                    mqttClient.subscribe(ROOM_ID);
+                    console.log('✅ MQTT подключен, комната:', ROOM_ID);
+                    updateMQTTStatus(true);
+                    mqttClient.subscribe(ROOM_ID, (err) => {
+                        if (err) {
+                            console.log('❌ Ошибка подписки:', err);
+                        } else {
+                            console.log('📡 Подписались на комнату:', ROOM_ID);
+                        }
+                    });
+                    
+                    // Если мы учитель и есть PDF - отправляем текущий слайд
+                    if (isTeacher && pdfDoc) {
+                        setTimeout(() => {
+                            sendPageImage(currentPage);
+                        }, 500);
+                    }
                 });
                 
                 mqttClient.on('message', (topic, message) => {
@@ -778,31 +993,39 @@
                         }
                         
                     } catch(e) {
-                        console.log('Ошибка MQTT:', e);
+                        console.log('❌ Ошибка MQTT:', e);
                     }
                 });
                 
-                mqttClient.on('error', () => {
-                    isConnected = false;
+                mqttClient.on('error', (err) => {
+                    console.log('❌ MQTT ошибка:', err);
+                    updateMQTTStatus(false);
                 });
                 
                 mqttClient.on('close', () => {
-                    isConnected = false;
+                    console.log('🔌 MQTT отключен');
+                    updateMQTTStatus(false);
                     setTimeout(connectMQTT, 3000);
                 });
                 
             } catch(e) {
-                console.log('Ошибка MQTT:', e);
+                console.log('❌ Ошибка подключения MQTT:', e);
+                updateMQTTStatus(false);
                 setTimeout(connectMQTT, 5000);
             }
         }
         
         // ================================================================
-        // 8. ОТПРАВКА ИЗОБРАЖЕНИЯ
+        // 7. ОТПРАВКА ИЗОБРАЖЕНИЯ
         // ================================================================
         
         async function sendPageImage(pageNum) {
             if (!isTeacher || !pdfDoc) return;
+            
+            if (!isConnected) {
+                console.log('⚠️ MQTT не подключен, ждем...');
+                return;
+            }
             
             try {
                 let imageData = pageCache.get(pageNum);
@@ -838,21 +1061,23 @@
                 }
                 
                 if (mqttClient && mqttClient.connected) {
-                    mqttClient.publish(ROOM_ID, JSON.stringify({
+                    const message = JSON.stringify({
                         action: 'pageUpdate',
                         page: pageNum,
                         totalPages: totalPages,
                         imageData: imageData
-                    }));
+                    });
+                    mqttClient.publish(ROOM_ID, message);
+                    console.log('📤 Отправлен слайд', pageNum, 'в комнату', ROOM_ID);
                 }
                 
             } catch(e) {
-                console.log('Ошибка отправки:', e);
+                console.log('❌ Ошибка отправки:', e);
             }
         }
         
         // ================================================================
-        // 9. РАБОТА С PDF
+        // 8. РАБОТА С PDF
         // ================================================================
         
         async function loadPDFFromData(data, name) {
@@ -878,20 +1103,27 @@
                 
                 await renderPage(1);
                 await renderAdminPreview(1);
-                await sendPageImage(1);
                 
-                // Сохраняем после загрузки
-                saveToStorage();
+                if (isTeacher) {
+                    await sendPageImage(1);
+                }
                 
-                console.log('PDF загружен:', name);
+                // Сохраняем состояние
+                if (isTeacher) {
+                    saveFullState();
+                }
+                
+                console.log('✅ PDF загружен:', name);
                 return true;
             } catch(e) {
-                console.log('Ошибка загрузки:', e);
+                console.log('❌ Ошибка загрузки:', e);
                 statusMsg.style.display = 'block';
                 statusMsg.innerHTML = `
                     <div class="icon">!</div>
                     Ошибка загрузки<br>
                     <span class="sub">${e.message || 'Попробуйте другой файл'}</span>
+                    <span class="room-id">Комната: ${ROOM_ID}</span>
+                    <span class="status">Статус: ${isConnected ? 'онлайн' : 'офлайн'}</span>
                 `;
                 canvas.style.display = 'none';
                 watermark.style.display = 'none';
@@ -926,12 +1158,12 @@
                 viewerPageInfo.textContent = pageNum + ' / ' + totalPages;
                 
             } catch(e) {
-                console.log('Ошибка рендеринга:', e);
+                console.log('❌ Ошибка рендеринга:', e);
             }
         }
         
         // ================================================================
-        // 10. ПРЕДПРОСМОТР В АДМИН-ПАНЕЛИ
+        // 9. ПРЕДПРОСМОТР
         // ================================================================
         
         async function renderAdminPreview(pageNum) {
@@ -961,12 +1193,12 @@
                 previewPlaceholder.style.display = 'none';
                 
             } catch(e) {
-                console.log('Ошибка предпросмотра:', e);
+                console.log('❌ Ошибка предпросмотра:', e);
             }
         }
         
         // ================================================================
-        // 11. УПРАВЛЕНИЕ ФАЙЛАМИ
+        // 10. УПРАВЛЕНИЕ ФАЙЛАМИ
         // ================================================================
         
         fileInput.addEventListener('change', (e) => {
@@ -1022,7 +1254,10 @@
                 
                 renderFileList();
                 updateFileInfo(file.name, 'Загрузка...');
-                saveToStorage();
+                
+                if (isTeacher) {
+                    saveFullState();
+                }
             };
             reader.readAsArrayBuffer(file);
         }
@@ -1035,9 +1270,11 @@
             if (success) {
                 await renderPage(1);
                 await renderAdminPreview(1);
-                await sendPageImage(1);
+                if (isTeacher) {
+                    await sendPageImage(1);
+                    saveFullState();
+                }
                 updateFileInfo(file.name, totalPages + ' стр.');
-                saveToStorage();
             }
         }
         
@@ -1073,13 +1310,17 @@
                         <div class="icon">●</div>
                         Ожидание презентации<br>
                         <span class="sub">Загрузите PDF в админ-панели</span>
+                        <span class="room-id">Комната: ${ROOM_ID}</span>
+                        <span class="status">Статус: ${isConnected ? 'онлайн' : 'офлайн'}</span>
                     `;
                     viewerPageInfo.textContent = '0 / 0';
                     fileInfo.style.display = 'none';
                 }
                 
                 renderFileList();
-                saveToStorage();
+                if (isTeacher) {
+                    saveFullState();
+                }
             }
         }
         
@@ -1090,7 +1331,7 @@
         }
         
         // ================================================================
-        // 12. ОТРИСОВКА СПИСКА
+        // 11. ОТРИСОВКА СПИСКА
         // ================================================================
         
         function renderFileList() {
@@ -1124,7 +1365,7 @@
         }
         
         // ================================================================
-        // 13. УПРАВЛЕНИЕ ПРЕЗЕНТАЦИЕЙ
+        // 12. УПРАВЛЕНИЕ ПРЕЗЕНТАЦИЕЙ
         // ================================================================
         
         async function changePage(direction) {
@@ -1142,12 +1383,12 @@
             
             if (isTeacher) {
                 await sendPageImage(currentPage);
-                saveToStorage(); // Сохраняем номер страницы
+                saveFullState();
             }
         }
         
         // ================================================================
-        // 14. ВХОД В АДМИН-ПАНЕЛЬ
+        // 13. ВХОД В АДМИН-ПАНЕЛЬ
         // ================================================================
         
         function toggleAdmin() {
@@ -1161,14 +1402,28 @@
                 if (!qrCodeInstance) {
                     initQRCode();
                 }
+                
+                // Запускаем автосохранение
+                startAutoSave();
+                
+                // Если есть файлы, но нет PDF - загружаем
+                if (files.length > 0 && !currentFile) {
+                    loadAndSelectFile(files[0]);
+                }
             } else {
                 document.getElementById('admin-panel').classList.remove('active');
                 document.getElementById('admin-trigger').textContent = '...';
+                
+                // Останавливаем автосохранение
+                if (autoSaveInterval) {
+                    clearInterval(autoSaveInterval);
+                    autoSaveInterval = null;
+                }
             }
         }
         
         // ================================================================
-        // 15. ПОДЕЛИТЬСЯ
+        // 14. ПОДЕЛИТЬСЯ
         // ================================================================
         
         function shareLink() {
@@ -1177,12 +1432,12 @@
             if (navigator.share) {
                 navigator.share({
                     title: 'Презентация',
-                    text: 'Присоединяйтесь к презентации',
+                    text: 'Присоединяйтесь к презентации. Ключ комнаты: ' + ROOM_ID,
                     url: url
                 }).catch(() => {});
             } else {
                 navigator.clipboard.writeText(url).then(() => {
-                    alert('Ссылка скопирована');
+                    alert('Ссылка скопирована!\n\nКлюч комнаты: ' + ROOM_ID);
                 }).catch(() => {
                     prompt('Скопируйте ссылку:', url);
                 });
@@ -1190,7 +1445,7 @@
         }
         
         // ================================================================
-        // 16. ЗАЩИТА
+        // 15. ЗАЩИТА
         // ================================================================
         
         document.getElementById('pdf-canvas').addEventListener('contextmenu', (e) => {
@@ -1203,24 +1458,51 @@
                 e.preventDefault();
                 return false;
             }
+            // Ctrl+Shift+R для принудительной перезагрузки
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+                e.preventDefault();
+                if (confirm('Принудительно перезагрузить страницу? Данные сохранены.')) {
+                    location.reload();
+                }
+            }
         });
         
         // ================================================================
-        // 17. ИНИЦИАЛИЗАЦИЯ
+        // 16. ИНИЦИАЛИЗАЦИЯ
         // ================================================================
         
-        console.log('Презентация готова');
-        console.log('Комната:', ROOM_ID);
-        console.log('Нажмите ... в правом верхнем углу для входа');
+        console.log('📚 Презентация готова');
+        console.log('🔑 Комната:', ROOM_ID);
+        console.log('🔗 Полная ссылка:', getFullUrl());
+        console.log('💡 Нажмите ... в правом верхнем углу для входа');
+        console.log('💾 Данные автоматически сохраняются каждые 10 секунд');
         
         // Пытаемся загрузить сохраненные данные
-        const hasSavedData = loadFromStorage();
+        const hasSavedData = loadFullState();
         
         if (!hasSavedData) {
-            console.log('Нет сохраненных данных');
+            console.log('📭 Нет сохраненных данных');
+            statusMsg.innerHTML = `
+                <div class="icon">●</div>
+                Ожидание презентации<br>
+                <span class="sub">Преподаватель скоро начнёт</span>
+                <span class="room-id">Комната: ${ROOM_ID}</span>
+                <span class="status" id="connection-status">Статус: подключение...</span>
+            `;
+        } else {
+            console.log('✅ Данные восстановлены');
+            isRestored = true;
         }
         
+        // Подключаем MQTT
         connectMQTT();
+        
+        // Сохраняем при уходе со страницы
+        window.addEventListener('beforeunload', () => {
+            if (isTeacher && files.length > 0) {
+                saveFullState();
+            }
+        });
         
         let resizeTimeout;
         window.addEventListener('resize', () => {
@@ -1250,7 +1532,9 @@
             }
         });
         
-        console.log('Готово');
+        console.log('✅ Готово!');
+        console.log('📤 Делитесь ссылкой:', getFullUrl());
+        console.log('💡 При перезагрузке страницы данные восстановятся');
     </script>
 </body>
 </html>
