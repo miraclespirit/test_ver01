@@ -1,6 +1,10 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Remote ЛИСА эдишн</title>
-    <!-- Подключаем самые надежные версии библиотек, которые не вызывают белый экран -->
+    <!-- Подключаем библиотеки -->
     <script src="https://cloudflare.com"></script>
     <script src="https://cloudflare.com"></script>
     <style>
@@ -8,7 +12,7 @@
         #canvas-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
         canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
         .shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        .info-text { font-size: 24px; color: #666; text-align: center; padding: 20px; }
+        .info-text { font-size: 24px; color: #888; text-align: center; padding: 20px; }
         
         /* Панель пульта управления для iPad */
         .admin-panel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 100; flex-direction: column; padding: 20px; box-sizing: border-box; }
@@ -16,7 +20,7 @@
         .btn { flex: 1; font-size: 36px; font-weight: bold; border: none; color: #fff; border-radius: 15px; cursor: pointer; }
         .btn-next { background: #5cb85c; }
         .btn-prev { background: #d9534f; }
-        .upload-zone { border: 3px dashed #444; border-radius: 15px; padding: 45px; text-align: center; font-size: 26px; margin-bottom: 20px; cursor: pointer; background: #1a1a1a; }
+        .upload-zone { border: 3px dashed #444; border-radius: 15px; padding: 45px; text-align: center; font-size: 26px; margin-bottom: 20px; cursor: pointer; background: #1a1a1a; color: #5cb85c; }
     </style>
 </head>
 <body>
@@ -30,79 +34,85 @@
         </div>
     </div>
 
-    <!-- ПУЛЬТ УПРАВЛЕНИЯ ДЛЯ IPAD -->
+    <!-- ПУЛЬТ УПРАВЛЕНИЯ ДЛЯ IPAD (Всегда сработает) -->
     <div id="admin-mode" class="admin-panel">
         <div id="upload-area" class="upload-zone" onclick="document.getElementById('file-input').click()">
-             Нажмите сюда, чтобы выбрать PDF с iPad
+            👉 НАЖМИТЕ СЮДА, ЧТОБЫ ВЫБРАТЬ PDF С АЙПАДА
             <input type="file" id="file-input" accept="application/pdf" style="display:none;" onchange="handleFile(this.files)">
         </div>
         <div class="btn-group">
             <button class="btn btn-next" onclick="changePage(1)">ВПЕРЕД ▶</button>
             <button class="btn btn-prev" onclick="changePage(-1)">◀ НАЗАД</button>
         </div>
-        <div style="margin-top:20px; font-size:26px; text-align:center;" id="page-num">Текущая страница: 1</div>
-        <button class="btn" style="background:#444; margin-top:auto; height:60px; font-size:20px;" onclick="location.reload()">ЗАВЕРШИТЬ ЛЕКЦИЮ</button>
+        <div style="margin-top:20px; font-size:26px; text-align:center; color:#aaa;" id="page-num">Текущая страница: 1</div>
+        <button class="btn" style="background:#444; margin-top:auto; height:60px; font-size:20px;" onclick="location.reload()"> ЗАВЕРШИТЬ ЛЕКЦИЮ</button>
     </div>
 
     <script>
-        // Настройка встроенного обработчика PDF
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
-
+        // ШАГ 1: МГНОВЕННОЕ ВКЛЮЧЕНИЕ ИНТЕРФЕЙСА (До сетей и проверок)
         const urlParams = new URLSearchParams(window.location.search);
         const isTeacher = urlParams.has('boss');
         
-        // ВАЖНО: Заменить эти цифры на любые свои (типа номер комнаты связи или сессии связи)
-        const roomID = "my_secret_pdf_remote_room_994821"; 
-        
-        let pdfDoc = null;
-        let pageNum = 1;
-        
-        // Подключаемся к стабильному эфирному шлюзу
-        let client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-
-        client.on('connect', () => { client.subscribe(roomID); });
-
         if (isTeacher) {
             document.getElementById('viewer-mode').style.display = 'none';
             document.getElementById('admin-mode').style.display = 'flex';
         }
 
-        // Логика выбора файла на iPad
+        // ШАГ 2: ИНИЦИАЛИЗАЦИЯ ДВИЖКА ПРЕЗЕНТАЦИИ
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        const roomID = "lisa_edition_room_99421"; // Секретная комната связи
+        
+        let pdfDoc = null;
+        let pageNum = 1;
+        let client = null;
+
+        // Безопасное подключение к сети, чтобы не повесить интерфейс iPad
+        try {
+            client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+            client.on('connect', () => { client.subscribe(roomID); });
+            
+            client.on('message', (topic, message) => {
+                try {
+                    const msg = JSON.parse(message.toString());
+                    if (!isTeacher) {
+                        if (msg.type === "FILE") { loadPDF(msg.data); }
+                        if (msg.type === "PAGE") { renderPage(msg.num); }
+                    }
+                } catch(e) { console.log(e); }
+            });
+        } catch(err) {
+            console.log("Сетевой шлюз инициализируется...");
+        }
+
+        // Выбор файла на iPad
         function handleFile(files) {
             if (!files.length) return;
             const reader = new FileReader();
             reader.onload = function(e) {
                 const base64Data = e.target.result;
-                // Рассылаем файл по воздуху зрителям
-                client.publish(roomID, JSON.stringify({ type: "FILE", data: base64Data }));
+                if(client && client.connected) {
+                    client.publish(roomID, JSON.stringify({ type: "FILE", data: base64Data }));
+                }
                 loadPDF(base64Data);
-                document.getElementById('upload-area').innerText = `Файл загружен успешно!`;
+                document.getElementById('upload-area').innerText = `ФАЙЛ УСПЕШНО ЗАГРУЖЕН!`;
                 document.getElementById('upload-area').style.borderColor = '#5cb85c';
+                document.getElementById('upload-area').style.color = '#5cb85c';
             };
-            reader.readAsDataURL(files[0]);
+            reader.readAsDataURL(files);
         }
 
-        // Перелистывание кнопками
+        // Кнопки пульта
         function changePage(direction) {
             if (!pdfDoc) return;
             pageNum += direction;
             if (pageNum < 1) pageNum = 1;
             if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
             
-            client.publish(roomID, JSON.stringify({ type: "PAGE", num: pageNum }));
+            if(client && client.connected) {
+                client.publish(roomID, JSON.stringify({ type: "PAGE", num: pageNum }));
+            }
             document.getElementById('page-num').innerText = `Текущая страница: ${pageNum}`;
         }
-
-        // Слушаем эфир команд
-        client.on('message', (topic, message) => {
-            try {
-                const msg = JSON.parse(message.toString());
-                if (!isTeacher) {
-                    if (msg.type === "FILE") { loadPDF(msg.data); }
-                    if (msg.type === "PAGE") { renderPage(msg.num); }
-                }
-            } catch(e) { console.log(e); }
-        });
 
         function loadPDF(dataUrl) {
             pdfjsLib.getDocument(dataUrl).promise.then((pdf) => {
@@ -111,7 +121,7 @@
                 document.getElementById('pdf-canvas').style.display = 'block';
                 renderPage(1);
             }).catch(err => {
-                document.getElementById('status-msg').innerText = "Ошибка чтения PDF-файла.";
+                document.getElementById('status-msg').innerText = "Ошибка загрузки PDF-файла.";
             });
         }
 
@@ -120,7 +130,7 @@
             pdfDoc.getPage(num).then((page) => {
                 const canvas = document.getElementById('pdf-canvas');
                 const ctx = canvas.getContext('2d');
-                const viewport = page.getViewport({ scale: 2.0 }); // Высокое качество слайдов
+                const viewport = page.getViewport({ scale: 2.0 });
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
                 page.render({ canvasContext: ctx, viewport: viewport });
@@ -129,3 +139,4 @@
     </script>
 </body>
 </html>
+
