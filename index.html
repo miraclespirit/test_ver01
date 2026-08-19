@@ -4,68 +4,79 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Remote ЛИСА эдишн</title>
-    <!-- Подключаем легкий PDF-движок и шлюз мгновенных команд -->
-    <script src="https://cloudflare.com"></script>
+    <!-- Бессмертные скрипты для чтения PDF и связи, работающие в чебурнете -->
     <script src="https://cloudflare.com"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; user-select: none; -webkit-user-select: none; }
         #canvas-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
         canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-        #receiver-img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; pointer-events: none; }
         .shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
         .info-text { font-size: 24px; color: #888; text-align: center; padding: 20px; }
         
-        /* Секретный вход для преподавателя */
+        /* Секретная кнопка входа на пульт */
         .secret-trigger { position: absolute; top: 10px; left: 10px; padding: 15px; color: #222; font-size: 14px; cursor: pointer; z-index: 50; }
 
-        /* Пульт управления для iPad */
-        .admin-panel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 100; flex-direction: column; padding: 20px; box-sizing: border-box; }
-        .btn-group { display: flex; gap: 20px; height: 35%; width: 100%; }
-        .btn { flex: 1; font-size: 36px; font-weight: bold; border: none; color: #fff; border-radius: 15px; cursor: pointer; }
+        /* Экран пульта на iPad */
+        .admin-panel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 100; flex-direction: column; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .btn-group { display: flex; gap: 20px; height: 120px; width: 100%; margin-bottom: 20px; }
+        .btn { flex: 1; font-size: 36px; font-weight: bold; border: none; color: #fff; border-radius: 20px; cursor: pointer; }
         .btn-next { background: #5cb85c; }
         .btn-prev { background: #d9534f; }
-        .upload-zone { border: 3px dashed #444; border-radius: 15px; padding: 45px; text-align: center; font-size: 26px; margin-bottom: 20px; cursor: pointer; background: #1a1a1a; color: #5cb85c; }
+        .lecture-info { font-size: 24px; text-align: center; margin-bottom: 15px; color: #5cb85c; font-weight: bold; }
+        
+        /* Меню выбора лекций для вас */
+        .menu-title { font-size: 22px; color: #aaa; margin: 15px 0 10px 0; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        .lecture-select-btn { width: 100%; padding: 15px; font-size: 18px; background: #222; border: 1px solid #444; color: #fff; text-align: left; border-radius: 10px; margin-bottom: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <!-- Секретная кнопка входа в левом верхнем углу -->
-    <div class="secret-trigger" onclick="toggleAdminMode()">⚙️ Вход</div>
+    <!-- Секретный вход в левом верхнем углу для iPad -->
+    <div class="secret-trigger" onclick="toggleAdminMode()">Вход</div>
 
     <!-- ЭКРАН СТУДЕНТОВ И ПК -->
     <div id="viewer-mode" style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;">
         <div id="canvas-container">
             <div class="shield" oncontextmenu="return false;"></div>
-            <div id="status-msg" class="info-text">Лекция готова к запуску.<br>Ожидание трансляции от преподавателя...</div>
-            <img id="receiver-img" alt="Слайд лекции">
+            <div id="status-msg" class="info-text">Лекция готова к запуску.<br>Ожидание презентации от преподавателя...</div>
             <canvas id="pdf-canvas" style="display:none;"></canvas>
         </div>
     </div>
 
     <!-- ЭКРАН ПУЛЬТА НА IPAD -->
     <div id="admin-mode" class="admin-panel">
-        <div id="upload-area" class="upload-zone" onclick="document.getElementById('file-input').click()">
-            👉 НАЖМИТЕ СЮДА, ЧТОБЫ ЗАГРУЗИТЬ PDF С АЙПАДА
-            <input type="file" id="file-input" accept="application/pdf" style="display:none;" onchange="handleFile(this.files)">
-        </div>
+        <div id="info-lbl" class="lecture-info">ВЫБЕРИТЕ ЛЕКЦИЮ ДЛЯ ЗАПУСКА:</div>
+        
         <div class="btn-group">
-            <button class="btn btn-next" onclick="changePage(1)">ВПЕРЕД ▶</button>
             <button class="btn btn-prev" onclick="changePage(-1)">◀ НАЗАД</button>
+            <button class="btn btn-next" onclick="changePage(1)">ВПЕРЕД ▶</button>
         </div>
-        <div style="margin-top:20px; font-size:26px; text-align:center; color:#aaa;" id="page-num">Текущая страница: 1</div>
-        <button class="btn" style="background:#444; margin-top:auto; height:60px; font-size:20px;" onclick="terminateLecture()"> ЗАВЕРШИТЬ ЛЕКЦИЮ</button>
+        <div style="font-size:28px; text-align:center; color:#aaa; margin-bottom: 20px;" id="page-num">Текущий слайд: 1</div>
+        
+        <div class="menu-title">ВАШИ ПРЕЗЕНТАЦИЯ (Нажмите для старта):</div>
+        <!-- Пропишите сюда названия ваших реальных PDF файлов с Яндекс Диска -->
+        <button class="lecture-select-btn" onclick="startLecture('мл1.pdf')">📘 Лекция 1. Название</button>
+        <button class="lecture-select-btn" onclick="startLecture('мл2.pdf')">📘 Лекция 2. Еще название</button>
+
+        <button class="btn" style="background:#444; margin-top:auto; min-height:60px; font-size:20px; max-height: 60px;" onclick="location.reload()">⏹ ЗАВЕРШИТЬ</button>
     </div>
 
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
         
-        // Уникальное имя комнаты связи
-        const roomID = "lisa_secure_chrome_room_773910"; 
+        // =========================================================================
+        // ВСТАВИТЬ СЮДА ПУБЛИЧНУЮ ССЫЛКУ НА ПАПКУ С ПДФ-КАМИ ИЗ ЯНДЕКС ДИСКА
+        // =========================================================================
+        const yaDiskFolder = "https://disk.yandex.ru/d/_EGo6ffAmPdroQ";
+        
+        // Секретный канал связи (замените цифры на свои)
+        const roomID = "lisa_final_pdf_room_994210"; 
         
         let pdfDoc = null;
         let pageNum = 1;
         let client = null;
         let isTeacher = false;
+        let activeFileName = '';
 
         function toggleAdminMode() {
             isTeacher = true;
@@ -73,83 +84,75 @@
             document.getElementById('admin-mode').style.display = 'flex';
         }
 
+        // Вы нажали на лекцию в меню iPad
+        function startLecture(fileName) {
+            activeFileName = fileName;
+            pageNum = 1;
+            document.getElementById('info-lbl').innerText = `АКТИВНО: ${fileName}`;
+            document.getElementById('page-num').innerText = `Текущий слайд: ${pageNum}`;
+            
+            // Автоматически командуем всем устройствам открыть этот файл на 1 странице
+            sendNetworkCommand(activeFileName, pageNum);
+        }
+
         try {
             client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
             client.on('connect', () => { client.subscribe(roomID); });
             
             client.on('message', (topic, message) => {
-                try {
-                    const msg = JSON.parse(message.toString());
-                    if (!isTeacher) {
-                        if (msg.type === "STREAM") { 
-                            document.getElementById('status-msg').style.display = 'none';
-                            const img = document.getElementById('receiver-img');
-                            img.src = msg.img;
-                            img.style.display = 'block';
-                        }
-                        if (msg.type === "CLOSE") { location.reload(); }
-                    }
-                } catch(e) { console.log(e); }
+                const msg = JSON.parse(message.toString());
+                // Студенты автоматически ловят имя файла и номер слайда, который вы включили
+                if (!isTeacher) {
+                    activeFileName = msg.file;
+                    pageNum = msg.num;
+                    loadAndRenderFromYandex();
+                }
             });
         } catch(err) { console.log(err); }
 
-        function handleFile(files) {
-            if (!files.length) return;
-            document.getElementById('upload-area').innerText = `Загрузка в Хром...`;
-            
-            const file = files[0];
-            const fileReader = new FileReader();
-            
-            fileReader.onload = async function() {
-                const typedarray = new Uint8Array(this.result);
-                pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
-                
-                document.getElementById('upload-area').innerText = `Трансляция запущена!`;
-                document.getElementById('upload-area').style.borderColor = '#5cb85c';
-                document.getElementById('upload-area').style.color = '#5cb85c';
-                
-                // Рендерим и отправляем первый слайд студентам
-                renderAndSendPage(1);
-            };
-            fileReader.readAsArrayBuffer(file);
-        }
-
         function changePage(direction) {
-            if (!pdfDoc) return;
+            if (!activeFileName) { alert('Сначала выберите лекцию из списка ниже!'); return; }
             pageNum += direction;
             if (pageNum < 1) pageNum = 1;
-            if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
+            if (pdfDoc && pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
             
-            renderAndSendPage(pageNum);
-            document.getElementById('page-num').innerText = `Текущая страница: ${pageNum}`;
+            sendNetworkCommand(activeFileName, pageNum);
+            renderPage(pageNum);
+            document.getElementById('page-num').innerText = `Текущий слайд: ${pageNum}`;
         }
 
-        function renderAndSendPage(num) {
+        function sendNetworkCommand(file, num) {
+            if(client && client.connected) {
+                client.publish(roomID, JSON.stringify({ file: file, num: num }));
+            }
+        }
+
+        async function loadAndRenderFromYandex() {
+            // Код сам лезет в Яндекс Диск и качает нужный PDF файл по официальному API Яндекса
+            const apiUrl = `https://yandex.net{encodeURIComponent(yaDiskFolder)}&path=${encodeURIComponent('/' + activeFileName)}`;
+            try {
+                let res = await fetch(apiUrl);
+                let meta = await res.json();
+                
+                pdfjsLib.getDocument(meta.href).promise.then((pdf) => {
+                    pdfDoc = pdf;
+                    document.getElementById('status-msg').style.display = 'none';
+                    document.getElementById('pdf-canvas').style.display = 'block';
+                    renderPage(pageNum);
+                });
+            } catch(e) { console.log("Связь со шлюзом..."); }
+        }
+
+        function renderPage(num) {
             if (!pdfDoc) return;
             pdfDoc.getPage(num).then((page) => {
                 const canvas = document.getElementById('pdf-canvas');
                 const ctx = canvas.getContext('2d');
-                const viewport = page.getViewport({ scale: 1.5 }); // Оптимальный размер для быстрой передачи
+                const viewport = page.getViewport({ scale: 2.0 }); // Четкая картинка
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
-                
-                page.render({ canvasContext: ctx, viewport: viewport }).promise.then(() => {
-                    // Превращаем готовый слайд в легкую сжатую картинку (JPEG)
-                    const imgData = canvas.toDataURL('image/jpeg', 0.6); // Сжатие 60% для мгновенной передачи
-                    
-                    // Шлем только саму картинку текущего слайда студентам
-                    if(client && client.connected) {
-                        client.publish(roomID, JSON.stringify({ type: "STREAM", img: imgData }));
-                    }
-                });
+                page.render({ canvasContext: ctx, viewport: viewport });
             });
-        }
-
-        function terminateLecture() {
-            if(client && client.connected) {
-                client.publish(roomID, JSON.stringify({ type: "CLOSE" }));
-            }
-            location.reload();
         }
     </script>
 </body>
