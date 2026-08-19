@@ -53,13 +53,13 @@
             <button class="btn btn-prev" onclick="changePage(-1)">◀ НАЗАД</button>
         </div>
         <div style="margin-top:20px; font-size:26px; text-align:center; color:#aaa;" id="page-num">Текущая страница: 1</div>
-        <button class="btn" style="background:#444; margin-top:auto; height:60px; font-size:20px;" onclick="terminateLecture()">⏹ ЗАВЕРШИТЬ ЛЕКЦИЮ</button>
+        <button class="btn" style="background:#444; margin-top:auto; height:60px; font-size:20px;" onclick="terminateLecture()"> ЗАВЕРШИТЬ ЛЕКЦИЮ</button>
     </div>
 
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
         
-        // Уникальное имя вашей комнаты связи (измените эти цифры на свои)
+        // Уникальное имя комнаты связи
         const roomID = "lisa_secure_chrome_room_773910"; 
         
         let pdfDoc = null;
