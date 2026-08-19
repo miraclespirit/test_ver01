@@ -2,158 +2,1094 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Remote ЛИСА эдишн</title>
-    <!-- Бессмертные скрипты для чтения PDF и связи, работающие в чебурнете -->
-    <script src="https://cloudflare.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Лиса пдф ремоут</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; user-select: none; -webkit-user-select: none; }
-        #canvas-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
-        canvas { max-width: 100%; max-height: 100%; object-fit: contain; }
-        .shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        .info-text { font-size: 24px; color: #888; text-align: center; padding: 20px; }
-        
-        /* Секретная кнопка входа на пульт */
-        .secret-trigger { position: absolute; top: 10px; left: 10px; padding: 15px; color: #222; font-size: 14px; cursor: pointer; z-index: 50; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-        /* Экран пульта на iPad */
-        .admin-panel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 100; flex-direction: column; padding: 20px; box-sizing: border-box; overflow-y: auto; }
-        .btn-group { display: flex; gap: 20px; height: 120px; width: 100%; margin-bottom: 20px; }
-        .btn { flex: 1; font-size: 36px; font-weight: bold; border: none; color: #fff; border-radius: 20px; cursor: pointer; }
-        .btn-next { background: #5cb85c; }
-        .btn-prev { background: #d9534f; }
-        .lecture-info { font-size: 24px; text-align: center; margin-bottom: 15px; color: #5cb85c; font-weight: bold; }
-        
-        /* Меню выбора лекций для вас */
-        .menu-title { font-size: 22px; color: #aaa; margin: 15px 0 10px 0; border-bottom: 1px solid #333; padding-bottom: 5px; }
-        .lecture-select-btn { width: 100%; padding: 15px; font-size: 18px; background: #222; border: 1px solid #444; color: #fff; text-align: left; border-radius: 10px; margin-bottom: 10px; cursor: pointer; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        /* ===== РЕЖИМ ПРОСМОТРА (ДЛЯ ЗРИТЕЛЕЙ) ===== */
+        #viewer-mode {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: #0a0a0a;
+        }
+
+        #canvas-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            padding: 10px;
+            background: #0a0a0a;
+        }
+
+        #pdf-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            box-shadow: 0 0 60px rgba(76, 175, 80, 0.05);
+            -webkit-user-drag: none;
+            user-drag: none;
+            pointer-events: none;
+        }
+
+        /* Водяной знак */
+        #watermark {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            color: rgba(255,255,255,0.06);
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 10;
+            font-weight: 300;
+            letter-spacing: 2px;
+            transform: rotate(-5deg);
+        }
+
+        #status-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #666;
+            font-size: 22px;
+            line-height: 1.6;
+            pointer-events: none;
+        }
+        #status-msg .icon { font-size: 64px; display: block; margin-bottom: 20px; }
+        #status-msg .sub { font-size: 16px; color: #444; }
+        #status-msg .room-id { 
+            font-size: 14px; 
+            color: #333; 
+            margin-top: 15px;
+            font-family: monospace;
+            background: #111;
+            padding: 5px 15px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+
+        #viewer-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            color: #666;
+            backdrop-filter: blur(10px);
+            border: 1px solid #1a1a1a;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 5;
+        }
+        #viewer-info .page { color: #4CAF50; font-weight: bold; }
+        #viewer-info .lock { margin-right: 8px; }
+
+        /* ===== КНОПКА ВХОДА (ТОЛЬКО ДЛЯ ПРЕПОДА) ===== */
+        .secret-trigger {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 18px;
+            background: rgba(255,255,255,0.03);
+            color: #333;
+            font-size: 12px;
+            cursor: pointer;
+            z-index: 50;
+            border: 1px solid #1a1a1a;
+            border-radius: 8px;
+            transition: all 0.3s;
+            letter-spacing: 1px;
+        }
+        .secret-trigger:hover {
+            background: rgba(255,255,255,0.08);
+            color: #666;
+        }
+
+        .connection-badge {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            z-index: 50;
+            background: #1a1a1a;
+            border: 1px solid #1a1a1a;
+            color: #444;
+        }
+        .connection-badge.online { border-color: #4CAF50; color: #4CAF50; }
+        .connection-badge.offline { border-color: #f44336; color: #f44336; }
+
+        /* ===== АДМИН-ПАНЕЛЬ (ДЛЯ ПРЕПОДА) ===== */
+        #admin-panel {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #121212;
+            z-index: 100;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        #admin-panel.active { display: flex; }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #222;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .admin-title {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .admin-close {
+            background: none;
+            border: 1px solid #333;
+            color: #666;
+            padding: 8px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .admin-close:hover {
+            background: #222;
+            color: #fff;
+        }
+
+        /* QR-код секция */
+        .qr-section {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .qr-section .info {
+            flex: 1;
+            min-width: 200px;
+        }
+        .qr-section .info .title {
+            font-size: 18px;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        .qr-section .info .sub {
+            font-size: 14px;
+            color: #666;
+        }
+        .qr-section .info .url {
+            font-size: 12px;
+            color: #444;
+            word-break: break-all;
+            background: #0a0a0a;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-top: 8px;
+            font-family: monospace;
+        }
+        .qr-section .qr-container {
+            background: #fff;
+            padding: 15px;
+            border-radius: 12px;
+            flex-shrink: 0;
+        }
+        #qrcode {
+            width: 150px;
+            height: 150px;
+        }
+        #qrcode img {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .copy-btn {
+            background: #2a2a2a;
+            border: none;
+            color: #888;
+            padding: 5px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+            transition: all 0.3s;
+        }
+        .copy-btn:hover {
+            background: #333;
+            color: #fff;
+        }
+
+        /* Кнопки управления */
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0 20px 0;
+        }
+        .controls .btn {
+            flex: 1;
+            padding: 25px;
+            font-size: 32px;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+            color: #fff;
+            touch-action: manipulation;
+        }
+        .controls .btn:active { transform: scale(0.95); }
+        .btn-prev { background: #f44336; }
+        .btn-prev:hover { background: #d32f2f; }
+        .btn-next { background: #4CAF50; }
+        .btn-next:hover { background: #388E3C; }
+
+        .page-info {
+            text-align: center;
+            font-size: 22px;
+            color: #aaa;
+            margin: 5px 0 20px 0;
+        }
+        .page-info span { color: #4CAF50; font-weight: bold; }
+
+        /* Загрузка PDF */
+        .upload-section {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 2px dashed #333;
+            transition: all 0.3s;
+        }
+        .upload-section.drag-over {
+            border-color: #4CAF50;
+            background: #1f2a1f;
+        }
+        .upload-label {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            cursor: pointer;
+        }
+        .upload-label .big-icon { font-size: 48px; }
+        .upload-label .text { color: #888; font-size: 16px; }
+        .upload-label .hint { color: #555; font-size: 13px; }
+        .upload-label input[type="file"] { display: none; }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+        .file-info .name {
+            flex: 1;
+            color: #4CAF50;
+            font-size: 16px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-info .remove {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 5px;
+        }
+        .file-info .remove:hover { color: #f44336; }
+
+        .lectures-list {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .lecture-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .lecture-item:hover {
+            background: #222;
+            border-color: #333;
+        }
+        .lecture-item.active {
+            border-color: #4CAF50;
+            background: #1f2a1f;
+        }
+        .lecture-item .icon { font-size: 28px; }
+        .lecture-item .info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .lecture-item .name {
+            font-size: 16px;
+            color: #fff;
+        }
+        .lecture-item .meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .protection-notice {
+            text-align: center;
+            color: #333;
+            font-size: 11px;
+            padding: 10px;
+            border-top: 1px solid #1a1a1a;
+            margin-top: 10px;
+        }
+
+        /* Адаптив */
+        @media (max-width: 768px) {
+            .controls .btn {
+                padding: 20px;
+                font-size: 28px;
+            }
+            .admin-title { font-size: 20px; }
+            #status-msg { font-size: 18px; }
+            .secret-trigger {
+                top: 10px;
+                right: 10px;
+                padding: 6px 12px;
+                font-size: 10px;
+            }
+            .connection-badge {
+                top: 10px;
+                left: 10px;
+                font-size: 9px;
+                padding: 4px 10px;
+            }
+            #viewer-info {
+                font-size: 12px;
+                padding: 5px 14px;
+                bottom: 10px;
+            }
+            #watermark {
+                font-size: 10px;
+                bottom: 50px;
+                right: 15px;
+            }
+            .qr-section {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            .qr-section .info .url {
+                font-size: 11px;
+            }
+            #qrcode {
+                width: 120px;
+                height: 120px;
+            }
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
     </style>
 </head>
 <body>
 
-    <!-- Секретный вход в левом верхнем углу для iPad -->
-    <div class="secret-trigger" onclick="toggleAdminMode()">Вход</div>
+    <div class="connection-badge offline" id="connection-badge">📡 Офлайн</div>
+    <div class="secret-trigger" id="admin-trigger" onclick="toggleAdmin()">🔐 Вход</div>
 
-    <!-- ЭКРАН СТУДЕНТОВ И ПК -->
-    <div id="viewer-mode" style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;">
+    <!-- РЕЖИМ ПРОСМОТРА (ДЛЯ ЗРИТЕЛЕЙ) -->
+    <div id="viewer-mode">
         <div id="canvas-container">
-            <div class="shield" oncontextmenu="return false;"></div>
-            <div id="status-msg" class="info-text">Лекция готова к запуску.<br>Ожидание презентации от преподавателя...</div>
+            <div id="status-msg">
+                <span class="icon">🔒</span>
+                Ожидание презентации<br>
+                <span class="sub">Преподаватель скоро начнёт</span>
+                <div class="room-id" id="display-room-id">Комната: ...</div>
+            </div>
             <canvas id="pdf-canvas" style="display:none;"></canvas>
+            <div id="watermark" style="display:none;">🔒 ЗАЩИЩЕНО</div>
+        </div>
+        <div id="viewer-info">
+            <span class="lock">🔒</span>
+            <span id="viewer-file-name">Нет активной презентации</span>
+            <span style="margin:0 8px;color:#333;">|</span>
+            <span class="page" id="viewer-page-info">Слайд 0 / 0</span>
         </div>
     </div>
 
-    <!-- ЭКРАН ПУЛЬТА НА IPAD -->
-    <div id="admin-mode" class="admin-panel">
-        <div id="info-lbl" class="lecture-info">ВЫБЕРИТЕ ЛЕКЦИЮ ДЛЯ ЗАПУСКА:</div>
-        
-        <div class="btn-group">
-            <button class="btn btn-prev" onclick="changePage(-1)">◀ НАЗАД</button>
-            <button class="btn btn-next" onclick="changePage(1)">ВПЕРЕД ▶</button>
+    <!-- АДМИН-ПАНЕЛЬ (ДЛЯ ПРЕПОДА) -->
+    <div id="admin-panel">
+        <div class="admin-header">
+            <div class="admin-title">Управление презентацией</div>
+            <div style="display:flex; gap:10px;">
+                <button class="admin-close" onclick="shareLink()">Поделиться</button>
+                <button class="admin-close" onclick="toggleAdmin()">Закрыть</button>
+            </div>
         </div>
-        <div style="font-size:28px; text-align:center; color:#aaa; margin-bottom: 20px;" id="page-num">Текущий слайд: 1</div>
-        
-        <div class="menu-title">ВАШИ ПРЕЗЕНТАЦИЯ (Нажмите для старта):</div>
-        <!-- Пропишите сюда названия ваших реальных PDF файлов с Яндекс Диска -->
-        <button class="lecture-select-btn" onclick="startLecture('мл1.pdf')">📘 Лекция 1. Название</button>
-        <button class="lecture-select-btn" onclick="startLecture('мл2.pdf')">📘 Лекция 2. Еще название</button>
 
-        <button class="btn" style="background:#444; margin-top:auto; min-height:60px; font-size:20px; max-height: 60px;" onclick="location.reload()">⏹ ЗАВЕРШИТЬ</button>
+        <!-- QR-код и ссылка -->
+        <div class="qr-section">
+            <div class="info">
+                <div class="title">Пригласите зрителей</div>
+                <div class="sub">Отсканируйте QR-код или отправьте ссылку</div>
+                <div class="url" id="share-url">Загрузка...</div>
+                <button class="copy-btn" onclick="copyLink()">Копировать ссылку</button>
+            </div>
+            <div class="qr-container">
+                <div id="qrcode"></div>
+            </div>
+        </div>
+
+        <!-- Кнопки навигации -->
+        <div class="controls">
+            <button class="btn btn-prev" onclick="changePage(-1)">◀</button>
+            <button class="btn btn-next" onclick="changePage(1)">▶</button>
+        </div>
+
+        <div class="page-info">
+            Слайд <span id="admin-page-num">1</span> из <span id="admin-total-pages">0</span>
+        </div>
+
+        <!-- Загрузка PDF -->
+        <div class="upload-section" id="upload-section">
+            <label class="upload-label" id="upload-label">
+                <span class="big-icon">📤</span>
+                <span class="text">Загрузите PDF файл</span>
+                <span class="hint">Файл НЕ передаётся зрителям, только изображения страниц</span>
+                <input type="file" id="file-input" accept=".pdf">
+            </label>
+            <div id="file-info" style="display:none;" class="file-info">
+                <span style="font-size:20px;">📄</span>
+                <span class="name" id="file-name">file.pdf</span>
+                <span style="color:#666;font-size:13px;" id="file-pages">0 стр.</span>
+                <button class="remove" onclick="removeFile()">✕</button>
+            </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:15px 0 10px 0;">
+            <span style="color:#888;font-size:16px;">📂 Мои презентации</span>
+            <span style="color:#555;font-size:13px;" id="files-count">0 файлов</span>
+        </div>
+        <div class="lectures-list" id="lectures-list">
+            <div style="text-align:center;color:#444;padding:40px 0;font-size:14px;">
+                Загрузите PDF файлы, чтобы начать
+            </div>
+        </div>
+
+        <div class="protection-notice">
+            🔒 Зрители видят ТОЛЬКО текущий слайд. Скачать PDF невозможно.
+        </div>
     </div>
 
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
+        // ================================================================
+        // 1. НАСТРОЙКИ
+        // ================================================================
         
-        // =========================================================================
-        // ВСТАВИТЬ СЮДА ПУБЛИЧНУЮ ССЫЛКУ НА ПАПКУ С ПДФ-КАМИ ИЗ ЯНДЕКС ДИСКА
-        // =========================================================================
-        const yaDiskFolder = "https://disk.yandex.ru/d/_EGo6ffAmPdroQ";
+        // Генерируем уникальный ID комнаты
+        const ROOM_ID = "pres_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
+        const QUALITY = 0.7; // Качество JPEG (0.1 - 1.0)
+        const MAX_IMAGE_SIZE = 1200;
         
-        // Секретный канал связи (замените цифры на свои)
-        const roomID = "lisa_final_pdf_room_994210"; 
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        // ================================================================
+        // 2. ПЕРЕМЕННЫЕ
+        // ================================================================
         
         let pdfDoc = null;
-        let pageNum = 1;
-        let client = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let currentFile = null;
+        let files = [];
         let isTeacher = false;
-        let activeFileName = '';
-
-        function toggleAdminMode() {
-            isTeacher = true;
-            document.getElementById('viewer-mode').style.display = 'none';
-            document.getElementById('admin-mode').style.display = 'flex';
-        }
-
-        // Вы нажали на лекцию в меню iPad
-        function startLecture(fileName) {
-            activeFileName = fileName;
-            pageNum = 1;
-            document.getElementById('info-lbl').innerText = `АКТИВНО: ${fileName}`;
-            document.getElementById('page-num').innerText = `Текущий слайд: ${pageNum}`;
+        let mqttClient = null;
+        let isConnected = false;
+        let pageCache = new Map();
+        let qrCodeInstance = null;
+        
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+        const statusMsg = document.getElementById('status-msg');
+        const watermark = document.getElementById('watermark');
+        const viewerFileName = document.getElementById('viewer-file-name');
+        const viewerPageInfo = document.getElementById('viewer-page-info');
+        const adminPageNum = document.getElementById('admin-page-num');
+        const adminTotalPages = document.getElementById('admin-total-pages');
+        const lecturesList = document.getElementById('lectures-list');
+        const filesCount = document.getElementById('files-count');
+        const fileInput = document.getElementById('file-input');
+        const uploadSection = document.getElementById('upload-section');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const filePages = document.getElementById('file-pages');
+        const connectionBadge = document.getElementById('connection-badge');
+        const shareUrl = document.getElementById('share-url');
+        const displayRoomId = document.getElementById('display-room-id');
+        
+        // Показываем ID комнаты
+        displayRoomId.textContent = 'Комната: ' + ROOM_ID;
+        
+        // ================================================================
+        // 3. QR-КОД И ССЫЛКА
+        // ================================================================
+        
+        function initQRCode() {
+            const url = window.location.href;
+            shareUrl.textContent = url;
             
-            // Автоматически командуем всем устройствам открыть этот файл на 1 странице
-            sendNetworkCommand(activeFileName, pageNum);
-        }
-
-        try {
-            client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-            client.on('connect', () => { client.subscribe(roomID); });
+            // Очищаем старый QR
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
             
-            client.on('message', (topic, message) => {
-                const msg = JSON.parse(message.toString());
-                // Студенты автоматически ловят имя файла и номер слайда, который вы включили
-                if (!isTeacher) {
-                    activeFileName = msg.file;
-                    pageNum = msg.num;
-                    loadAndRenderFromYandex();
-                }
+            // Создаем новый QR-код
+            qrCodeInstance = new QRCode(qrContainer, {
+                text: url,
+                width: 150,
+                height: 150,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
             });
-        } catch(err) { console.log(err); }
-
-        function changePage(direction) {
-            if (!activeFileName) { alert('Сначала выберите лекцию из списка ниже!'); return; }
-            pageNum += direction;
-            if (pageNum < 1) pageNum = 1;
-            if (pdfDoc && pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
-            
-            sendNetworkCommand(activeFileName, pageNum);
-            renderPage(pageNum);
-            document.getElementById('page-num').innerText = `Текущий слайд: ${pageNum}`;
         }
-
-        function sendNetworkCommand(file, num) {
-            if(client && client.connected) {
-                client.publish(roomID, JSON.stringify({ file: file, num: num }));
+        
+        function copyLink() {
+            const url = window.location.href;
+            navigator.clipboard.writeText(url).then(() => {
+                alert('✅ Ссылка скопирована!\n\n' + url);
+            }).catch(() => {
+                prompt('Скопируйте ссылку:', url);
+            });
+        }
+        
+        // ================================================================
+        // 4. MQTT
+        // ================================================================
+        
+        function connectMQTT() {
+            try {
+                mqttClient = mqtt.connect('wss://test.mosquitto.org:8081');
+                
+                mqttClient.on('connect', () => {
+                    console.log('✅ MQTT подключен');
+                    isConnected = true;
+                    connectionBadge.textContent = '📡 Онлайн';
+                    connectionBadge.className = 'connection-badge online';
+                    mqttClient.subscribe(ROOM_ID);
+                });
+                
+                mqttClient.on('message', (topic, message) => {
+                    try {
+                        const data = JSON.parse(message.toString());
+                        console.log('📨 Получено:', data);
+                        
+                        // Зрители получают изображение
+                        if (!isTeacher && data.action === 'pageUpdate') {
+                            const img = new Image();
+                            img.onload = function() {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                                ctx.drawImage(img, 0, 0);
+                                
+                                canvas.style.display = 'block';
+                                statusMsg.style.display = 'none';
+                                watermark.style.display = 'block';
+                                
+                                viewerFileName.textContent = data.fileName || 'Презентация';
+                                viewerPageInfo.textContent = `Слайд ${data.page} / ${data.totalPages || '?'}`;
+                                adminPageNum.textContent = data.page;
+                                adminTotalPages.textContent = data.totalPages || '?';
+                            };
+                            img.src = data.imageData;
+                        }
+                        
+                    } catch(e) {
+                        console.log('Ошибка MQTT:', e);
+                    }
+                });
+                
+                mqttClient.on('error', () => {
+                    isConnected = false;
+                    connectionBadge.textContent = '📡 Офлайн';
+                    connectionBadge.className = 'connection-badge offline';
+                });
+                
+                mqttClient.on('close', () => {
+                    isConnected = false;
+                    connectionBadge.textContent = '📡 Офлайн';
+                    connectionBadge.className = 'connection-badge offline';
+                    setTimeout(connectMQTT, 3000);
+                });
+                
+            } catch(e) {
+                console.log('⚠️ MQTT ошибка:', e);
+                setTimeout(connectMQTT, 5000);
             }
         }
-
-        async function loadAndRenderFromYandex() {
-            // Код сам лезет в Яндекс Диск и качает нужный PDF файл по официальному API Яндекса
-            const apiUrl = `https://yandex.net{encodeURIComponent(yaDiskFolder)}&path=${encodeURIComponent('/' + activeFileName)}`;
+        
+        // ================================================================
+        // 5. ОТПРАВКА ИЗОБРАЖЕНИЯ
+        // ================================================================
+        
+        async function sendPageImage(pageNum) {
+            if (!isTeacher || !pdfDoc) return;
+            
             try {
-                let res = await fetch(apiUrl);
-                let meta = await res.json();
+                let imageData = pageCache.get(pageNum);
                 
-                pdfjsLib.getDocument(meta.href).promise.then((pdf) => {
-                    pdfDoc = pdf;
-                    document.getElementById('status-msg').style.display = 'none';
-                    document.getElementById('pdf-canvas').style.display = 'block';
-                    renderPage(pageNum);
-                });
-            } catch(e) { console.log("Связь со шлюзом..."); }
+                if (!imageData) {
+                    const page = await pdfDoc.getPage(pageNum);
+                    const viewport = page.getViewport({ scale: 1 });
+                    
+                    let width = viewport.width;
+                    let height = viewport.height;
+                    
+                    if (width > MAX_IMAGE_SIZE) {
+                        const ratio = MAX_IMAGE_SIZE / width;
+                        width = MAX_IMAGE_SIZE;
+                        height = height * ratio;
+                    }
+                    
+                    const scale = width / viewport.width;
+                    const scaledViewport = page.getViewport({ scale: scale });
+                    
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = scaledViewport.width;
+                    tempCanvas.height = scaledViewport.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    await page.render({
+                        canvasContext: tempCtx,
+                        viewport: scaledViewport
+                    }).promise;
+                    
+                    imageData = tempCanvas.toDataURL('image/jpeg', QUALITY);
+                    pageCache.set(pageNum, imageData);
+                }
+                
+                if (mqttClient && mqttClient.connected) {
+                    mqttClient.publish(ROOM_ID, JSON.stringify({
+                        action: 'pageUpdate',
+                        fileName: currentFile ? currentFile.name : 'Презентация',
+                        page: pageNum,
+                        totalPages: totalPages,
+                        imageData: imageData
+                    }));
+                    console.log('📤 Отправлен слайд', pageNum);
+                }
+                
+            } catch(e) {
+                console.log('❌ Ошибка отправки:', e);
+            }
         }
-
-        function renderPage(num) {
+        
+        // ================================================================
+        // 6. РАБОТА С PDF
+        // ================================================================
+        
+        async function loadPDFFromData(data, name) {
+            try {
+                statusMsg.style.display = 'none';
+                canvas.style.display = 'block';
+                watermark.style.display = 'block';
+                
+                const loadingTask = pdfjsLib.getDocument({ data: data });
+                pdfDoc = await loadingTask.promise;
+                totalPages = pdfDoc.numPages;
+                pageCache.clear();
+                
+                if (currentFile) {
+                    currentFile.pages = totalPages;
+                }
+                
+                adminTotalPages.textContent = totalPages;
+                viewerFileName.textContent = name;
+                viewerPageInfo.textContent = `Слайд 1 / ${totalPages}`;
+                adminPageNum.textContent = 1;
+                
+                renderFileList();
+                
+                await renderPage(1);
+                await sendPageImage(1);
+                
+                console.log('✅ PDF загружен:', name, 'страниц:', totalPages);
+                return true;
+            } catch(e) {
+                console.log('❌ Ошибка загрузки:', e);
+                statusMsg.style.display = 'block';
+                statusMsg.innerHTML = `
+                    <span class="icon">❌</span>
+                    Ошибка загрузки PDF<br>
+                    <span class="sub">${e.message || 'Попробуйте другой файл'}</span>
+                `;
+                canvas.style.display = 'none';
+                watermark.style.display = 'none';
+                return false;
+            }
+        }
+        
+        async function renderPage(pageNum) {
             if (!pdfDoc) return;
-            pdfDoc.getPage(num).then((page) => {
-                const canvas = document.getElementById('pdf-canvas');
-                const ctx = canvas.getContext('2d');
-                const viewport = page.getViewport({ scale: 2.0 }); // Четкая картинка
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                page.render({ canvasContext: ctx, viewport: viewport });
-            });
+            
+            try {
+                const page = await pdfDoc.getPage(pageNum);
+                const container = document.getElementById('canvas-container');
+                const containerWidth = container.clientWidth - 20;
+                const containerHeight = container.clientHeight - 20;
+                
+                const viewport = page.getViewport({ scale: 1 });
+                const scaleX = containerWidth / viewport.width;
+                const scaleY = containerHeight / viewport.height;
+                const scale = Math.min(scaleX, scaleY, 1.5);
+                
+                const scaledViewport = page.getViewport({ scale: scale });
+                canvas.width = scaledViewport.width;
+                canvas.height = scaledViewport.height;
+                
+                await page.render({
+                    canvasContext: ctx,
+                    viewport: scaledViewport
+                }).promise;
+                
+                adminPageNum.textContent = pageNum;
+                viewerFileName.textContent = currentFile ? currentFile.name : 'Презентация';
+                viewerPageInfo.textContent = `Слайд ${pageNum} / ${totalPages}`;
+                
+                console.log('✅ Страница отрендерена:', pageNum);
+                
+            } catch(e) {
+                console.log('❌ Ошибка рендеринга:', e);
+            }
         }
+        
+        // ================================================================
+        // 7. УПРАВЛЕНИЕ ФАЙЛАМИ
+        // ================================================================
+        
+        fileInput.addEventListener('change', (e) => {
+            const selectedFiles = Array.from(e.target.files);
+            selectedFiles.forEach(file => {
+                if (file.type === 'application/pdf') {
+                    readAndAddFile(file);
+                }
+            });
+            fileInput.value = '';
+        });
+        
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('drag-over');
+        });
+        
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('drag-over');
+        });
+        
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('drag-over');
+            const droppedFiles = Array.from(e.dataTransfer.files);
+            droppedFiles.forEach(file => {
+                if (file.type === 'application/pdf') {
+                    readAndAddFile(file);
+                }
+            });
+        });
+        
+        function readAndAddFile(file) {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const arrayBuffer = e.target.result;
+                
+                const exists = files.find(f => f.name === file.name);
+                if (exists) {
+                    alert('⚠️ Файл "' + file.name + '" уже загружен');
+                    return;
+                }
+                
+                files.push({
+                    name: file.name,
+                    data: arrayBuffer,
+                    pages: 0
+                });
+                
+                if (files.length === 1) {
+                    await loadAndSelectFile(files[0]);
+                }
+                
+                renderFileList();
+                updateFileInfo(file.name, 'Загрузка...');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        async function loadAndSelectFile(file) {
+            currentFile = file;
+            currentPage = 1;
+            
+            const success = await loadPDFFromData(file.data, file.name);
+            if (success) {
+                await renderPage(1);
+                await sendPageImage(1);
+                updateFileInfo(file.name, totalPages + ' стр.');
+            }
+        }
+        
+        function selectFile(index) {
+            const file = files[index];
+            if (!file) return;
+            loadAndSelectFile(file);
+        }
+        
+        function removeFile() {
+            if (files.length > 0) {
+                const index = files.findIndex(f => f === currentFile);
+                if (index !== -1) {
+                    files.splice(index, 1);
+                } else {
+                    files.pop();
+                }
+                
+                if (files.length > 0) {
+                    currentFile = files[0];
+                    loadAndSelectFile(currentFile);
+                } else {
+                    currentFile = null;
+                    pdfDoc = null;
+                    totalPages = 0;
+                    pageCache.clear();
+                    canvas.style.display = 'none';
+                    watermark.style.display = 'none';
+                    statusMsg.style.display = 'block';
+                    statusMsg.innerHTML = `
+                        <span class="icon">🔒</span>
+                        Ожидание презентации<br>
+                        <span class="sub">Загрузите PDF в админ-панели</span>
+                    `;
+                    viewerFileName.textContent = 'Нет презентации';
+                    viewerPageInfo.textContent = 'Слайд 0 / 0';
+                    fileInfo.style.display = 'none';
+                }
+                
+                renderFileList();
+            }
+        }
+        
+        function updateFileInfo(name, pages) {
+            fileName.textContent = name;
+            filePages.textContent = pages;
+            fileInfo.style.display = 'flex';
+        }
+        
+        // ================================================================
+        // 8. ОТРИСОВКА СПИСКА
+        // ================================================================
+        
+        function renderFileList() {
+            if (files.length === 0) {
+                lecturesList.innerHTML = `
+                    <div style="text-align:center;color:#444;padding:40px 0;font-size:14px;">
+                        📭 Нет загруженных файлов
+                    </div>
+                `;
+                filesCount.textContent = '0 файлов';
+                return;
+            }
+            
+            let html = '';
+            files.forEach((file, index) => {
+                const isActive = currentFile && currentFile.name === file.name;
+                html += `
+                    <div class="lecture-item ${isActive ? 'active' : ''}" onclick="selectFile(${index})">
+                        <span class="icon">📄</span>
+                        <div class="info">
+                            <span class="name">${file.name}</span>
+                            <span class="meta">${file.pages || '...'} страниц</span>
+                        </div>
+                        ${isActive ? '<span style="color:#4CAF50;">▶</span>' : ''}
+                    </div>
+                `;
+            });
+            
+            lecturesList.innerHTML = html;
+            filesCount.textContent = files.length + ' файлов';
+        }
+        
+        // ================================================================
+        // 9. УПРАВЛЕНИЕ ПРЕЗЕНТАЦИЕЙ
+        // ================================================================
+        
+        async function changePage(direction) {
+            if (!currentFile || !pdfDoc) {
+                alert('⚠️ Сначала загрузите PDF файл');
+                return;
+            }
+            
+            currentPage += direction;
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            
+            await renderPage(currentPage);
+            
+            if (isTeacher) {
+                await sendPageImage(currentPage);
+            }
+        }
+        
+        // ================================================================
+        // 10. ВХОД В АДМИН-ПАНЕЛЬ
+        // ================================================================
+        
+        function toggleAdmin() {
+            isTeacher = !isTeacher;
+            
+            if (isTeacher) {
+                document.getElementById('admin-panel').classList.add('active');
+                document.getElementById('admin-trigger').textContent = '🔓 Выход';
+                renderFileList();
+                
+                if (files.length > 0 && !currentFile) {
+                    loadAndSelectFile(files[0]);
+                }
+                
+                // Инициализируем QR при первом входе
+                if (!qrCodeInstance) {
+                    initQRCode();
+                }
+            } else {
+                document.getElementById('admin-panel').classList.remove('active');
+                document.getElementById('admin-trigger').textContent = '🔐 Вход';
+            }
+        }
+        
+        // ================================================================
+        // 11. ПОДЕЛИТЬСЯ
+        // ================================================================
+        
+        function shareLink() {
+            const url = window.location.href;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: '🔒 Безопасная презентация',
+                    text: 'Присоединяйтесь к презентации! Скачать PDF невозможно.',
+                    url: url
+                }).catch(() => {});
+            } else {
+                navigator.clipboard.writeText(url).then(() => {
+                    alert('✅ Ссылка скопирована!\n\n' + url);
+                }).catch(() => {
+                    prompt('Скопируйте ссылку:', url);
+                });
+            }
+        }
+        
+        // ================================================================
+        // 12. ЗАЩИТА
+        // ================================================================
+        
+        document.getElementById('pdf-canvas').addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+        
+        // ================================================================
+        // 13. ИНИЦИАЛИЗАЦИЯ
+        // ================================================================
+        
+        console.log('Безопасная презентация');
+        console.log('ID комнаты:', ROOM_ID);
+        console.log('Откройте эту страницу на iPad и нажмите "Вход"');
+        console.log('QR-код появится после входа в админ-панель');
+        
+        connectMQTT();
+        
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (pdfDoc && currentPage && isTeacher) {
+                    renderPage(currentPage);
+                }
+            }, 300);
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (isTeacher) {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    changePage(1);
+                }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    changePage(-1);
+                }
+            }
+        });
+        
+        console.log('Готово!');
     </script>
 </body>
 </html>
